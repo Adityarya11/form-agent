@@ -2,8 +2,10 @@ package main
 
 import (
 	"encoding/json"
-	"log"
+	"log/slog"
 	"net/http"
+	"os"
+	"time"
 
 	"form-agent/mcp-server/tools"
 )
@@ -18,7 +20,13 @@ type MCPResponse struct {
 	Error  string `json:"error,omitempty"`
 }
 
+var logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+	Level: slog.LevelDebug,
+}))
+
 func mcpHandler(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -26,9 +34,12 @@ func mcpHandler(w http.ResponseWriter, r *http.Request) {
 
 	var req MCPRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		logger.Error("failed to decode request", "error", err)
 		writeError(w, "invalid request body")
 		return
 	}
+
+	logger.Info("incoming request", "tool", req.Tool)
 
 	var (
 		result any
@@ -42,6 +53,7 @@ func mcpHandler(w http.ResponseWriter, r *http.Request) {
 			writeError(w, "invalid params for search")
 			return
 		}
+		logger.Debug("search params", "query", p.Query, "max_results", p.MaxResults)
 		result, err = tools.Search(p)
 
 	case "ask_llm":
@@ -50,6 +62,7 @@ func mcpHandler(w http.ResponseWriter, r *http.Request) {
 			writeError(w, "invalid params for ask_llm")
 			return
 		}
+		logger.Debug("ask_llm params", "question", p.Question, "options_count", len(p.Options))
 		result, err = tools.AskLLM(p)
 
 	case "rank_answers":
@@ -58,17 +71,25 @@ func mcpHandler(w http.ResponseWriter, r *http.Request) {
 			writeError(w, "invalid params for rank_answers")
 			return
 		}
+		logger.Debug("rank_answers params", "question", p.Question)
 		result, err = tools.RankAnswers(p)
 
 	default:
+		logger.Warn("unknown tool called", "tool", req.Tool)
 		writeError(w, "unknown tool: "+req.Tool)
 		return
 	}
 
 	if err != nil {
+		logger.Error("tool execution failed", "tool", req.Tool, "error", err)
 		writeError(w, err.Error())
 		return
 	}
+
+	logger.Info("tool completed", "tool", req.Tool, "duration_ms", time.Since(start).Milliseconds())
+
+	resultJSON, _ := json.Marshal(result)
+	logger.Debug("tool result", "tool", req.Tool, "result", string(resultJSON))
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(MCPResponse{Result: result})
@@ -81,7 +102,11 @@ func writeError(w http.ResponseWriter, msg string) {
 }
 
 func main() {
+	logger.Info("MCP server starting", "addr", ":8080")
 	http.HandleFunc("/mcp", mcpHandler)
-	log.Println("MCP server listening on :8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	logger.Info("MCP server ready")
+	if err := http.ListenAndServe(":8080", nil); err != nil {
+		logger.Error("server failed", "error", err)
+		os.Exit(1)
+	}
 }
