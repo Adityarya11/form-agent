@@ -86,7 +86,7 @@ func mcpHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		logger.Debug("resolve_batch", "job_count", len(jobs))
-		result = tools.ResolveBatch(jobs, 3)
+		result = tools.ResolveBatch(jobs, 2) // hardware limitation
 
 	default:
 		logger.Warn("unknown tool called", "tool", req.Tool)

@@ -2,16 +2,18 @@ from playwright.sync_api import sync_playwright, Page
 from scraper import FormField
 
 
-def fill_form(url: str, answers: dict[int, str | list[str]]):
+def fill_form(url: str, page_fields: dict[int, list[tuple[FormField, str | list[str]]]]):
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=False)
         page = browser.new_page()
         page.goto(url, wait_until="networkidle")
 
         current_page = 0
-        page_fields = group_by_page(answers)
 
         while True:
+            page.wait_for_selector("div[role='listitem']", timeout=10000)
+            page.wait_for_timeout(500)
+
             if current_page in page_fields:
                 fill_page(page, page_fields[current_page])
 
@@ -23,16 +25,15 @@ def fill_form(url: str, answers: dict[int, str | list[str]]):
         browser.close()
 
 
-def group_by_page(answers: dict[int, str | list[str]]) -> dict[int, dict]:
-    return answers
-
-
 def fill_page(page: Page, fields: list[tuple[FormField, str | list[str]]]):
     for form_field, answer in fields:
+        if not answer:
+            print(f"skipping [{form_field.index}] no answer available")
+            continue
         try:
             fill_field(page, form_field, answer)
         except Exception as e:
-            print(f"failed to fill field [{form_field.index}]: {e}")
+            print(f"failed [{form_field.index}] '{form_field.question[:50]}': {e}")
 
 
 def fill_field(page: Page, form_field: FormField, answer: str | list[str]):
@@ -41,13 +42,17 @@ def fill_field(page: Page, form_field: FormField, answer: str | list[str]):
     target = None
     for item in items:
         heading = item.query_selector("div[role='heading']")
-        if heading and heading.inner_text().strip() == form_field.question:
+        if not heading:
+            continue
+        if heading.inner_text().strip() == form_field.question.strip():
             target = item
             break
 
     if target is None:
-        print(f"question not found on page: {form_field.question}")
+        print(f"not found: '{form_field.question[:60]}'")
         return
+
+    print(f"filling [{form_field.index}] type={form_field.field_type} answer='{answer}'")
 
     match form_field.field_type:
         case "short_text" | "long_text":
@@ -58,18 +63,22 @@ def fill_field(page: Page, form_field: FormField, answer: str | list[str]):
 
         case "radio":
             radios = target.query_selector_all("div[role='radio']")
+            matched = False
             for radio in radios:
-                label = radio.get_attribute("data-value") or radio.inner_text().strip()
-                if label.strip().lower() == str(answer).strip().lower():
+                label = (radio.get_attribute("data-value") or radio.inner_text()).strip()
+                if label.lower() == str(answer).strip().lower():
                     radio.click()
+                    matched = True
                     break
+            if not matched:
+                print(f"  no radio match for '{answer}' in {[r.inner_text().strip() for r in radios]}")
 
         case "checkbox":
             selected = [a.strip().lower() for a in (answer if isinstance(answer, list) else [answer])]
             boxes = target.query_selector_all("div[role='checkbox']")
             for box in boxes:
-                label = box.get_attribute("data-value") or box.inner_text().strip()
-                if label.strip().lower() in selected:
+                label = (box.get_attribute("data-value") or box.inner_text()).strip().lower()
+                if label in selected:
                     box.click()
 
         case "dropdown":
@@ -77,8 +86,7 @@ def fill_field(page: Page, form_field: FormField, answer: str | list[str]):
             if listbox:
                 listbox.click()
                 page.wait_for_selector("div[role='option']", timeout=3000)
-                options = page.query_selector_all("div[role='option']")
-                for opt in options:
+                for opt in page.query_selector_all("div[role='option']"):
                     if opt.inner_text().strip().lower() == str(answer).strip().lower():
                         opt.click()
                         break
@@ -89,9 +97,9 @@ def click_next(page: Page) -> bool:
         btn = page.query_selector(sel)
         if btn:
             btn.click()
-            page.wait_for_load_state("networkidle")
             try:
-                page.wait_for_selector("div[role='listitem']", timeout=5000)
+                page.wait_for_selector("div[role='listitem']", timeout=8000)
+                page.wait_for_timeout(400)
                 return True
             except Exception:
                 return False
@@ -107,3 +115,17 @@ def submit(page: Page):
             print("form submitted")
             return
     print("submit button not found")
+
+
+def debug_headings(url: str):
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.goto(url, wait_until="networkidle")
+        page.wait_for_selector("div[role='listitem']", timeout=10000)
+        items = page.query_selector_all("div[role='listitem']")
+        for i, item in enumerate(items):
+            heading = item.query_selector("div[role='heading']")
+            if heading:
+                print(f"[{i}] repr: {repr(heading.inner_text().strip())}")
+        browser.close()
