@@ -85,6 +85,18 @@ def navigate_next(page: Page) -> bool:
     return False
 
 
+def get_option_text(el) -> str:
+    data_val = el.get_attribute("data-value")
+    if data_val and data_val.strip():
+        return data_val.strip()
+    span = el.query_selector("span")
+    if span:
+        text = span.inner_text().strip()
+        if text:
+            return text
+    return el.inner_text().strip()
+
+
 def detect_field(item) -> tuple[str | None, list[str]]:
     if item.query_selector("input[type='text'], input[type='email'], input[type='number'], input[type='url']"):
         return "short_text", []
@@ -94,12 +106,12 @@ def detect_field(item) -> tuple[str | None, list[str]]:
 
     radio_els = item.query_selector_all("div[role='radio']")
     if radio_els:
-        options = [el.get_attribute("data-value") or el.inner_text().strip() for el in radio_els]
+        options = [get_option_text(el) for el in radio_els]
         return "radio", [o for o in options if o]
 
     checkbox_els = item.query_selector_all("div[role='checkbox']")
     if checkbox_els:
-        options = [el.get_attribute("data-value") or el.inner_text().strip() for el in checkbox_els]
+        options = [get_option_text(el) for el in checkbox_els]
         return "checkbox", [o for o in options if o]
 
     dropdown_el = item.query_selector("div[role='listbox']")
@@ -108,7 +120,6 @@ def detect_field(item) -> tuple[str | None, list[str]]:
         return "dropdown", [el.inner_text().strip() for el in option_els]
 
     return None, []
-
 
 def print_fields(fields: list[FormField]):
     current_page = -1

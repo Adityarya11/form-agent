@@ -65,13 +65,20 @@ def fill_field(page: Page, form_field: FormField, answer: str | list[str]):
             radios = target.query_selector_all("div[role='radio']")
             matched = False
             for radio in radios:
-                label = (radio.get_attribute("data-value") or radio.inner_text()).strip()
+                data_val = radio.get_attribute("data-value") or ""
+                span = radio.query_selector("span")
+                label = data_val.strip() or (span.inner_text().strip() if span else "") or radio.inner_text().strip()
                 if label.lower() == str(answer).strip().lower():
                     radio.click()
                     matched = True
                     break
             if not matched:
-                print(f"  no radio match for '{answer}' in {[r.inner_text().strip() for r in radios]}")
+                labels = []
+                for r in radios:
+                    dv = r.get_attribute("data-value") or ""
+                    sp = r.query_selector("span")
+                    labels.append(dv.strip() or (sp.inner_text().strip() if sp else "") or r.inner_text().strip())
+                print(f"  no radio match for '{answer}' in {labels}")
 
         case "checkbox":
             selected = [a.strip().lower() for a in (answer if isinstance(answer, list) else [answer])]
