@@ -57,6 +57,7 @@ def resolve_answer(field: FormField, personal_context: str) -> str | list[str]:
     return winner
 
 
+## previously `run` was per-field sequential loop.
 def run(url: str, docs_dir: str = "../docs"):
     print(f"loading personal docs from {docs_dir}")
     personal_context = load_docs(docs_dir)
@@ -65,17 +66,27 @@ def run(url: str, docs_dir: str = "../docs"):
     fields = scrape_form(url)
     print(f"found {len(fields)} fields across pages\n")
 
+    jobs = [
+        {
+            "Question": f.question,
+            "Options":  f.options,
+            "Context":  get_relevant_context(personal_context, f.question),
+        }
+        for f in fields
+    ]
+
+    print(f"resolving {len(jobs)} fields concurrently (batch size 3)...")
+    results = mcp.resolve_batch(jobs)
+
+    answer_map = {r["Question"]: r["Winner"] for r in results}
+
+    for r in results:
+        print(f"Q: {r['Question']}")
+        print(f"   winner='{r['Winner']}' source={r['Source']}\n")
+
     page_fields: dict[int, list[tuple[FormField, str | list[str]]]] = {}
-
     for field in fields:
-        print(f"[field {field.index}] page={field.page} type={field.field_type}")
-        print(f"  Q: {field.question}")
-        if field.options:
-            print(f"  options: {field.options}")
-
-        answer = resolve_answer(field, personal_context)
-        print(f"  => answer: {answer}\n")
-
+        answer = answer_map.get(field.question, "")
         if field.page not in page_fields:
             page_fields[field.page] = []
         page_fields[field.page].append((field, answer))

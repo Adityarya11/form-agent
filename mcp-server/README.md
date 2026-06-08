@@ -28,3 +28,69 @@ For now Go is the right home for this because:
 - LLM calls are network I/O — goroutines are ideal
 - Keeps Python clean — Python only does DOM work (scrape + fill)
 - Easy to extend later — add more tools as Go functions
+
+## architect until [MVP-v1](https://github.com/Adityarya11/form-agent/commit/27b00b955c036b3403b531ee65dbac38748dd9d2)
+
+Great questions both. Let me answer them clearly.
+
+---
+
+### JSON-RPC vs REST — what we're actually doing
+
+- **plain REST right now** — POST to `/mcp` with a `tool` field. It's not JSON-RPC.
+
+True JSON-RPC looks like:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "search",
+  "params": { "query": "golang" }
+}
+```
+
+The difference:
+| | REST | JSON-RPC |
+|---|---|---|
+| Endpoint per tool | `/mcp/search`, `/mcp/ask_llm` | single `/rpc` |
+| Tool name | in URL | in body as `method` |
+| Batching | no | yes — send array of calls in one request |
+| Standard | informal | formal spec |
+
+**For this — REST is correct.** JSON-RPC makes sense when this would have a protocol-level client that auto-discovers tools (like actual MCP spec from Anthropic). I am building a custom agent, so REST is simpler and good enough.
+
+---
+
+### Buffered channels
+
+- **worker pool with a buffered channel as a semaphore**. The idea:
+
+```
+fields: [f0, f1, f2, f3, f4, f5, f6...]
+           ↓
+     semaphore (buffer=3)
+     ┌──────────────┐
+     │ goroutine f0 │──► ask_llm + search simultaneously
+     │ goroutine f1 │──► ask_llm + search simultaneously
+     │ goroutine f2 │──► ask_llm + search simultaneously
+     └──────────────┘
+     f3 blocks until one slot frees
+```
+
+Each goroutine itself fires two sub-goroutines — personal and web — with a `WaitGroup`. So at peak this would have 3 fields × 2 calls = 6 concurrent Ollama/DDG calls.
+
+The flow is now:
+
+```
+Python scrapes all fields
+        ↓
+Single HTTP call → Go resolve_batch
+        ↓
+Go: 3 fields at a time via buffered chan
+    each field: personal + web fire simultaneously via WaitGroup
+        ↓
+All results back in one response
+        ↓
+Python fills sequentially (DOM work, can't parallelize)
+```

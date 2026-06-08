@@ -74,6 +74,20 @@ func mcpHandler(w http.ResponseWriter, r *http.Request) {
 		logger.Debug("rank_answers params", "question", p.Question)
 		result, err = tools.RankAnswers(p)
 
+		/*
+		* this is the portion for the batch resolving, means now the go routines will be activated and
+		* LLM calling will be done in 3 async threads.
+		 */
+	case "resolve_batch":
+		var jobs []tools.FieldJob
+		if err = json.Unmarshal(req.Params, &jobs); err != nil {
+			writeError(w, "invalid params for the resolve_batch")
+			return
+		}
+
+		logger.Debug("resolve_batch", "job_count", len(jobs))
+		result = tools.ResolveBatch(jobs, 3)
+
 	default:
 		logger.Warn("unknown tool called", "tool", req.Tool)
 		writeError(w, "unknown tool: "+req.Tool)

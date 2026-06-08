@@ -17,6 +17,9 @@ def search(query: str, max_results: int = 3) -> list[dict]:
     return _call("search", {"query": query, "max_results": max_results}) or []
 
 
+def resolve_batch(jobs: list[dict]) -> list[dict]: 
+    return _call("resolve_batch", jobs) or []
+
 def ask_llm(question: str, context: str = "", options: list[str] = None) -> str:
     result = _call("ask_llm", {
         "question": question,
