@@ -65,29 +65,24 @@ func AskLLM(p AskLLMParams) (AskLLMResult, error) {
 func buildPrompt(p AskLLMParams) string {
 	var sb strings.Builder
 
+	sb.WriteString("You are a form-filling assistant. Answer the question below using the provided context.\n\n")
+
+	if p.Context != "" {
+		sb.WriteString("Context:\n")
+		sb.WriteString(p.Context)
+		sb.WriteString("\n\n")
+	}
+
+	sb.WriteString("Question: ")
+	sb.WriteString(p.Question)
+	sb.WriteString("\n")
+
 	if len(p.Options) > 0 {
-		sb.WriteString("You are a form-filling assistant. You MUST reply with ONLY one of the provided options, word for word. No explanation. No punctuation. Just the option text.\n\n")
-		if p.Context != "" {
-			sb.WriteString("Context:\n")
-			sb.WriteString(p.Context)
-			sb.WriteString("\n\n")
-		}
-		sb.WriteString("Question: ")
-		sb.WriteString(p.Question)
-		sb.WriteString("\n")
-		sb.WriteString("Options: ")
-		sb.WriteString(strings.Join(p.Options, " | "))
-		sb.WriteString("\n\nReply with exactly one option from the list above. Nothing else.")
+		sb.WriteString("Available options: ")
+		sb.WriteString(strings.Join(p.Options, ", "))
+		sb.WriteString("\nPick the single best option and reply with only that option text, nothing else.\n")
 	} else {
-		sb.WriteString("You are a form-filling assistant. Reply with a short, direct answer only. No explanation.\n\n")
-		if p.Context != "" {
-			sb.WriteString("Context:\n")
-			sb.WriteString(p.Context)
-			sb.WriteString("\n\n")
-		}
-		sb.WriteString("Question: ")
-		sb.WriteString(p.Question)
-		sb.WriteString("\nAnswer:")
+		sb.WriteString("Reply with a concise, direct answer only.\n")
 	}
 
 	return sb.String()
