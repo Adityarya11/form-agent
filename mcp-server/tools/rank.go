@@ -1,6 +1,9 @@
 package tools
 
-import "sync"
+import (
+	"strings"
+	"sync"
+)
 
 type RankParams struct {
 	Question   string `json:"question"`
@@ -99,13 +102,17 @@ func resolveDone(job FieldJob) FieldResult {
 	go func() {
 		defer wg.Done()
 
+		if strings.TrimSpace(job.Context) == "" {
+			return
+		}
+
 		res, err := AskLLM(AskLLMParams{
 			Question: job.Question,
 			Context:  job.Context,
 			Options:  job.Options,
 		})
 
-		if err != nil {
+		if err == nil {
 			personalAns = res.Answer
 		}
 	}()
@@ -123,7 +130,7 @@ func resolveDone(job FieldJob) FieldResult {
 
 		ctx := ""
 		for _, r := range results {
-			ctx = r.Title + ": " + r.Snippet + "\n"
+			ctx += r.Title + ": " + r.Snippet + "\n"
 		}
 
 		res, err := AskLLM(AskLLMParams{
