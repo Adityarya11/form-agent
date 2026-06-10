@@ -12,10 +12,34 @@ class FormField:
     required: bool = False
 
 
-def scrape_form(url: str) -> list[FormField]:
+def scrape_form(url: str, use_cdp: bool = False) -> list[FormField]:
+
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
+
+        if use_cdp:
+
+            browser = p.chromium.connect_over_cdp(
+                "http://127.0.0.1:9222"
+            )
+
+            if not browser.contexts:
+                raise RuntimeError(
+                    "No browser contexts found. "
+                    "Is Chrome running with --remote-debugging-port=9222 ?"
+                )
+
+            context = browser.contexts[0]
+            page = context.new_page()
+
+        else:
+
+            browser = p.chromium.launch(
+                headless=False
+            )
+
+            context = browser.new_context()
+            page = context.new_page()
+
         page.goto(url, wait_until="networkidle")
 
         all_fields = []
@@ -23,15 +47,28 @@ def scrape_form(url: str) -> list[FormField]:
         page_number = 0
 
         while True:
-            page.wait_for_selector("div[role='listitem']", timeout=15000)
-            fields, field_index = scrape_page(page, page_number, field_index)
+
+            page.wait_for_selector(
+                "div[role='listitem']",
+                timeout=15000
+            )
+
+            fields, field_index = scrape_page(
+                page,
+                page_number,
+                field_index,
+            )
+
             all_fields.extend(fields)
 
             if not navigate_next(page):
                 break
+
             page_number += 1
 
-        browser.close()
+        if not use_cdp:
+            browser.close()
+
         return all_fields
 
 

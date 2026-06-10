@@ -1,15 +1,73 @@
-from playwright.sync_api import sync_playwright, Page
+from playwright.sync_api import sync_playwright, Page, BrowserContext
 from scraper import FormField
 
 
-def fill_form(url: str, page_fields: dict[int, list[tuple[FormField, str | list[str]]]]):
+def fill_form(
+    url: str,
+    page_fields: dict[int, list[tuple[FormField, str | list[str]]]],
+    use_profile: bool = False,
+    profile_path: str = "",
+    use_cdp: bool = False,
+):
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)
-        page = browser.new_page()
+        browser = None
+        context = None
+
+        if use_cdp:
+            print("connecting to existing Chrome via CDP...")
+
+            browser = p.chromium.connect_over_cdp(
+                "http://127.0.0.1:9222"
+            )
+
+            if not browser.contexts:
+                raise RuntimeError(
+                    "No browser contexts found. "
+                    "Is Chrome running with --remote-debugging-port=9222 ?"
+                )
+
+            context = browser.contexts[0]
+
+            page = context.new_page()
+
+        elif use_profile and profile_path:
+
+            print("launching Chrome profile...")
+
+            context = p.chromium.launch_persistent_context(
+                user_data_dir=profile_path,
+                channel="chrome",
+                headless=False,
+                args=[
+                    "--profile-directory=Profile 13",
+                ],
+            )
+
+            page = context.pages[0] if context.pages else context.new_page()
+
+        else:
+
+            browser = p.chromium.launch(headless=False)
+
+            page = browser.new_page()
+
         page.goto(url, wait_until="networkidle")
 
-        current_page = 0
+        ## Wait for the login.
+        if "accounts.google.com" in page.url:
+            print()
+            print("Google login required.")
+            print("Complete login in the browser.")
+            print()
 
+            page.wait_for_url(
+                "**docs.google.com/forms/**",
+                timeout=300000
+            )
+
+            print("Login detected.")
+
+        current_page = 0
         while True:
             page.wait_for_selector("div[role='listitem']", timeout=10000)
             page.wait_for_timeout(500)
@@ -21,8 +79,36 @@ def fill_form(url: str, page_fields: dict[int, list[tuple[FormField, str | list[
                 break
             current_page += 1
 
-        submit(page)
-        browser.close()
+        print()
+        print("=" * 60)
+        print("Form has been filled.")
+        print("Review the answers in Chrome before submission.")
+        print()
+        print("Press ENTER to submit.")
+        print("Close the browser window to cancel.")
+        print("=" * 60)
+        print()
+
+        input()
+
+        submitted = submit(page)
+
+        if submitted:
+            print("Detaching from browser...")
+
+        if use_cdp:
+            try: 
+                browser.close()
+            except Exception: 
+                pass
+
+        elif use_profile and context:
+
+            context.close()
+
+        else:
+
+            page.context.browser.close()
 
 
 def fill_page(page: Page, fields: list[tuple[FormField, str | list[str]]]):
@@ -114,19 +200,28 @@ def click_next(page: Page) -> bool:
 
 
 def submit(page: Page):
-    for sel in ["div[role='button'] span:has-text('Submit')", "span:has-text('Submit')"]:
+
+    for sel in [
+        "div[role='button'] span:has-text('Submit')",
+        "span:has-text('Submit')",
+    ]:
+
         btn = page.query_selector(sel)
+
         if btn:
+
             btn.click()
-            page.wait_for_load_state("networkidle")
-            print("form submitted")
-            return
-    print("submit button not found")
+
+            print("→→→→→→→→→→→→→→→→→→→→→→→→→→    ✓ Form submitted.")
+            return True
+
+    print("✗ Submit button not found.")
+    return False
 
 
 def debug_headings(url: str):
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(headless=False)
         page = browser.new_page()
         page.goto(url, wait_until="networkidle")
         page.wait_for_selector("div[role='listitem']", timeout=10000)
