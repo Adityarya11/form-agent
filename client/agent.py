@@ -4,66 +4,14 @@ from scraper import scrape_form, FormField
 from filler import fill_form
 
 
-def build_search_query(question: str, options: list[str]) -> str:
-    if options:
-        return f"{question} {' '.join(options[:2])}"
-    return question
-
-
-def answer_from_personal(question: str, options: list[str], context: str) -> str:
-    relevant = get_relevant_context(context, question)
-    if not relevant:
-        return ""
-    return mcp.ask_llm(question, context=relevant, options=options)
-
-
-def answer_from_web(question: str, options: list[str]) -> str:
-    query = build_search_query(question, options)
-    results = mcp.search(query, max_results=3)
-    if not results:
-        return ""
-    web_context = "\n".join(
-        f"{r['title']}: {r['snippet']}" for r in results if r.get("title")
-    )
-    return mcp.ask_llm(question, context=web_context, options=options)
-
-
-def resolve_answer(field: FormField, personal_context: str) -> str | list[str]:
-    print(f"  [personal] querying...")
-    ans_personal = answer_from_personal(field.question, field.options, personal_context)
-
-    print(f"  [web]      querying...")
-    ans_web = answer_from_web(field.question, field.options)
-
-    if not ans_personal and not ans_web:
-        return field.options[0] if field.options else ""
-
-    if not ans_personal:
-        print(f"  [decision] only web answer available")
-        return ans_web
-
-    if not ans_web:
-        print(f"  [decision] only personal answer available")
-        return ans_personal
-
-    print(f"  [rank]     personal='{ans_personal}' | web='{ans_web}'")
-    ranked = mcp.rank_answers(field.question, ans_personal, ans_web)
-    winner = ranked.get("winner", ans_personal)
-    source = ranked.get("source", "unknown")
-    print(f"  [decision] winner='{winner}' source={source}")
-
-    if field.field_type == "checkbox":
-        return [winner]
-    return winner
-
-
-## previously `run` was per-field sequential loop.
-def run(url: str, docs_dir: str = "../docs"):
+def run(url: str, docs_dir: str = "../docs", concurrency: int = 2, dry_run: bool = False,use_profile: bool = False, 
+        profile_path: str = "", use_cdp: bool = False):
+    
     print(f"loading personal docs from {docs_dir}")
     personal_context = load_docs(docs_dir)
 
     print(f"scraping form: {url}")
-    fields = scrape_form(url)
+    fields = scrape_form(url, use_cdp=use_cdp)
     print(f"found {len(fields)} fields across pages\n")
 
     jobs = [
@@ -75,7 +23,7 @@ def run(url: str, docs_dir: str = "../docs"):
         for f in fields
     ]
 
-    print(f"resolving {len(jobs)} fields concurrently (batch size 3)...")
+    print(f"resolving {len(jobs)} fields (batch={concurrency})...")
     results = mcp.resolve_batch(jobs)
 
     answer_map = {r["Question"]: r["Winner"] for r in results}
@@ -83,6 +31,10 @@ def run(url: str, docs_dir: str = "../docs"):
     for r in results:
         print(f"Q: {r['Question']}")
         print(f"   winner='{r['Winner']}' source={r['Source']}\n")
+
+    if dry_run:
+        print("dry-run: skipping fill")
+        return
 
     page_fields: dict[int, list[tuple[FormField, str | list[str]]]] = {}
     for field in fields:
@@ -92,13 +44,5 @@ def run(url: str, docs_dir: str = "../docs"):
         page_fields[field.page].append((field, answer))
 
     print("filling form...")
-    fill_form(url, page_fields)
+    fill_form(url, page_fields, use_profile=use_profile, profile_path=profile_path, use_cdp=use_cdp)
     print("done")
-
-
-if __name__ == "__main__":
-    import sys
-    if len(sys.argv) < 2:
-        print("usage: uv run python agent.py <google_form_url>")
-        sys.exit(1)
-    run(sys.argv[1])
