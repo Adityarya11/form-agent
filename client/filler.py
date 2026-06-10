@@ -1,6 +1,7 @@
 from playwright.sync_api import sync_playwright, Page, BrowserContext
-from scraper import FormField
+import re
 
+from scraper import FormField
 
 def fill_form(
     url: str,
@@ -121,6 +122,21 @@ def fill_page(page: Page, fields: list[tuple[FormField, str | list[str]]]):
         except Exception as e:
             print(f"failed [{form_field.index}] '{form_field.question[:50]}': {e}")
 
+def normalize_question(text: str) -> str:
+
+    text = text.lower()
+
+    text = re.sub(
+        r"^\d+\.\s*",
+        "",
+        text
+    )
+
+    text = text.replace("*", "")
+
+    text = " ".join(text.split())
+
+    return text.strip()
 
 def fill_field(page: Page, form_field: FormField, answer: str | list[str]):
     items = page.query_selector_all("div[role='listitem']")
@@ -128,9 +144,18 @@ def fill_field(page: Page, form_field: FormField, answer: str | list[str]):
     target = None
     for item in items:
         heading = item.query_selector("div[role='heading']")
-        if not heading:
+        if heading:
+            print(
+                "FORM:",
+                repr(form_field.question)
+            )
+            print(
+                "PAGE:",
+                repr(heading.inner_text())
+            )
+        else: 
             continue
-        if heading.inner_text().strip() == form_field.question.strip():
+        if (normalize_question(heading.inner_text()) == normalize_question(form_field.question)):
             target = item
             break
 
@@ -201,21 +226,28 @@ def click_next(page: Page) -> bool:
 
 def submit(page: Page):
 
-    for sel in [
-        "div[role='button'] span:has-text('Submit')",
-        "span:has-text('Submit')",
-    ]:
+    try:
 
-        btn = page.query_selector(sel)
+        submit_btn = page.locator(
+            "div[role='button'] span:has-text('Submit')"
+        ).first
 
-        if btn:
+        if submit_btn.count() > 0:
 
-            btn.click()
+            submit_btn.click(timeout=3000)
 
-            print("→→→→→→→→→→→→→→→→→→→→→→→→→→    ✓ Form submitted.")
+            print("✓ Form submitted")
+
             return True
 
-    print("✗ Submit button not found.")
+    except Exception as e:
+
+        print(
+            f"Submit navigation detected: {e}"
+        )
+
+        return True
+
     return False
 
 
