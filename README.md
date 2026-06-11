@@ -1,5 +1,10 @@
 # Form Agent
 
+<img width="2752" height="1536" alt="lol_this_image_is_gay" src="https://github.com/user-attachments/assets/3583dcfe-777f-44e6-b214-074edaead38f" />
+
+
+## **[Watch here](https://youtu.be/O3jsubaC-Tw?si=rTq4J2y8RvTSUIA9)**
+
 ## **fastest local setup to answer 100 question in 82.382s**
 
 ```mermaid
