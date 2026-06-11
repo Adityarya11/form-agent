@@ -13,20 +13,43 @@ def main():
     parser.add_argument("--docs", default="../docs", help="path to personal docs directory")
     parser.add_argument("--concurrency", type=int, default=2, help="parallel LLM batch size")
     parser.add_argument("--dry-run", action="store_true", help="resolve answers but do not fill")
-    parser.add_argument("--use-profile", action="store_true", help="use your Chrome profile for authenticated submission")
-    parser.add_argument(
-    "--use-cdp",
-    action="store_true",
-    help="attach to existing Chrome via CDP"
-)
+
+    browser_group = parser.add_mutually_exclusive_group()
+    browser_group.add_argument("--use-cdp", action="store_true", default=True, help="attach to existing Chrome via CDP (default)")
+    browser_group.add_argument("--use-profile", action="store_true", help="launch Chrome with your profile path from .env")
+    browser_group.add_argument("--anonymous", action="store_true", help="launch a fresh anonymous browser")
+
+    llm_group = parser.add_mutually_exclusive_group()
+    llm_group.add_argument("--use-local-llm", action="store_true", default=True, help="use local Ollama/Qwen (default)")
+    llm_group.add_argument("--use-cloud-llm", action="store_true", help="use Gemini 2.0 Flash via API key in .env")
+
     args = parser.parse_args()
 
     profile_path = os.getenv("CHROME_PROFILE_PATH", "")
-
     if args.use_profile and not profile_path:
         print("error: --use-profile requires CHROME_PROFILE_PATH in .env")
-        print("  example: CHROME_PROFILE_PATH=/home/youruser/.config/google-chrome")
         raise SystemExit(1)
+
+    if args.use_cloud_llm:
+        if not os.getenv("GEMINI_API_KEY"):
+            print("error: --use-cloud-llm requires GEMINI_API_KEY in .env")
+            raise SystemExit(1)
+        os.environ["USE_CLOUD_LLM"] = "true"
+        llm_label = "gemini-2.0-flash"
+    else:
+        os.environ["USE_CLOUD_LLM"] = "false"
+        llm_label = "qwen2.5:3b (local)"
+
+    if args.anonymous:
+        browser_label = "anonymous"
+    elif args.use_profile:
+        browser_label = f"profile ({profile_path})"
+    else:
+        browser_label = "cdp (existing Chrome)"
+
+    print(f"browser : {browser_label}")
+    print(f"llm     : {llm_label}")
+    print()
 
     start = time.time()
     run(
@@ -36,7 +59,7 @@ def main():
         dry_run=args.dry_run,
         use_profile=args.use_profile,
         profile_path=profile_path,
-        use_cdp=args.use_cdp,
+        use_cdp=not args.anonymous and not args.use_profile,
     )
     print(f"total time: {time.time() - start:.1f}s")
 

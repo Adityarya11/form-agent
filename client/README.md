@@ -1,13 +1,19 @@
 # python client
 
-````bash
-# anonymous, dry run to preview answers
-$ uv run python main.py 'FORM_URL' --dry-run
+```bash
+# defaults: CDP + local LLM
+uv run python main.py 'FORM_URL'
 
-# anonymous, fills and waits for human review before submit
-$ uv run python main.py 'FORM_URL'
+# CDP + cloud LLM
+uv run python main.py 'FORM_URL' --use-cloud-llm
 
-# using Google profile, fills as you(the user), waits for review
-$ uv run python main.py 'FORM_URL' --use-profile```
+# your Chrome profile + cloud LLM
+uv run python main.py 'FORM_URL' --use-profile --use-cloud-llm
 
-````
+# anonymous + local (testing only)
+uv run python main.py 'FORM_URL' --anonymous
+
+# dry run with cloud
+uv run python main.py 'FORM_URL' --use-cloud-llm --dry-run
+
+```
