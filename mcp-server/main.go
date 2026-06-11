@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"form-agent/mcp-server/tools"
@@ -116,7 +117,13 @@ func writeError(w http.ResponseWriter, msg string) {
 }
 
 func main() {
-	logger.Info("MCP server starting", "addr", ":8080")
+	if v := os.Getenv("USE_CLOUD_LLM"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			tools.UseCloudLLM = b
+		}
+	}
+
+	logger.Info("MCP server starting", "addr", ":8080", "cloud_llm", tools.UseCloudLLM)
 	http.HandleFunc("/mcp", mcpHandler)
 	logger.Info("MCP server ready")
 	if err := http.ListenAndServe(":8080", nil); err != nil {

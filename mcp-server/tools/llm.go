@@ -6,13 +6,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
 
-var ollamaClient = &http.Client{
-	Timeout: 120 * time.Second,
-}
+var ollamaClient = &http.Client{Timeout: 120 * time.Second}
+var geminiClient = &http.Client{Timeout: 30 * time.Second}
+
+var UseCloudLLM = false
 
 type AskLLMParams struct {
 	Question string   `json:"question"`
@@ -34,7 +36,34 @@ type ollamaResponse struct {
 	Response string `json:"response"`
 }
 
+type geminiPart struct {
+	Text string `json:"text"`
+}
+
+type geminiContent struct {
+	Parts []geminiPart `json:"parts"`
+}
+
+type geminiRequest struct {
+	Contents []geminiContent `json:"contents"`
+}
+
+type geminiCandidate struct {
+	Content geminiContent `json:"content"`
+}
+
+type geminiResponse struct {
+	Candidates []geminiCandidate `json:"candidates"`
+}
+
 func AskLLM(p AskLLMParams) (AskLLMResult, error) {
+	if UseCloudLLM {
+		return askGemini(p)
+	}
+	return askOllama(p)
+}
+
+func askOllama(p AskLLMParams) (AskLLMResult, error) {
 	prompt := buildPrompt(p)
 
 	body, _ := json.Marshal(ollamaRequest{
@@ -60,6 +89,50 @@ func AskLLM(p AskLLMParams) (AskLLMResult, error) {
 	}
 
 	return AskLLMResult{Answer: strings.TrimSpace(out.Response)}, nil
+}
+
+func askGemini(p AskLLMParams) (AskLLMResult, error) {
+	apiKey := os.Getenv("GEMINI_API_KEY")
+	if apiKey == "" {
+		return AskLLMResult{}, fmt.Errorf("GEMINI_API_KEY not set")
+	}
+
+	prompt := buildPrompt(p)
+
+	reqBody, _ := json.Marshal(geminiRequest{
+		Contents: []geminiContent{
+			{Parts: []geminiPart{{Text: prompt}}},
+		},
+	})
+
+	url := "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + apiKey
+
+	resp, err := geminiClient.Post(url, "application/json", bytes.NewReader(reqBody))
+	if err != nil {
+		return AskLLMResult{}, fmt.Errorf("gemini unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return AskLLMResult{}, fmt.Errorf("reading gemini response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return AskLLMResult{}, fmt.Errorf("gemini error %d: %s", resp.StatusCode, string(raw))
+	}
+
+	var out geminiResponse
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return AskLLMResult{}, fmt.Errorf("parsing gemini response: %w", err)
+	}
+
+	if len(out.Candidates) == 0 || len(out.Candidates[0].Content.Parts) == 0 {
+		return AskLLMResult{}, fmt.Errorf("gemini returned empty response")
+	}
+
+	answer := strings.TrimSpace(out.Candidates[0].Content.Parts[0].Text)
+	return AskLLMResult{Answer: answer}, nil
 }
 
 func buildPrompt(p AskLLMParams) string {
